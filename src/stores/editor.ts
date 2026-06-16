@@ -111,9 +111,25 @@ export const useEditorStore = defineStore('editor', () => {
       )
 
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Generation request failed:', response.status, errorText)
-        throw new Error(`Generation failed: ${response.status}`)
+        let errorMessage = 'Generation failed. Please try again.'
+        try {
+          const errorData = await response.json()
+          if (errorData.message) {
+            errorMessage = errorData.message
+          } else if (errorData.error?.message) {
+            errorMessage = errorData.error.message
+          }
+        } catch {
+          // Response wasn't JSON, use status-based message
+          if (response.status === 404) {
+            errorMessage = 'The AI model is currently unavailable. Please try again later or contact support.'
+          } else if (response.status === 429) {
+            errorMessage = 'Too many requests. Please wait a moment and try again.'
+          } else if (response.status >= 500) {
+            errorMessage = 'Server error. Please try again later.'
+          }
+        }
+        throw new Error(errorMessage)
       }
 
       const reader = response.body?.getReader()
@@ -177,6 +193,12 @@ export const useEditorStore = defineStore('editor', () => {
         await fetchFiles()
       } else {
         console.error('Generation error:', error)
+        messages.value.push({
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ ${error.message || 'Something went wrong. Please try again.'}`,
+          createdAt: new Date().toISOString(),
+        })
       }
     } finally {
       isGenerating.value = false
@@ -202,7 +224,16 @@ export const useEditorStore = defineStore('editor', () => {
       case 'complete':
         break
       case 'error':
-        console.error('SSE error:', data.message)
+        // Show error message to the user in chat
+        messages.value.push({
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ ${data.message || 'Something went wrong. Please try again.'}`,
+          createdAt: new Date().toISOString(),
+        })
+        // Stop generating since we hit an error
+        isGenerating.value = false
+        streamContent.value = ''
         break
     }
   }
