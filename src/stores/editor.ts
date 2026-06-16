@@ -120,7 +120,6 @@ export const useEditorStore = defineStore('editor', () => {
             errorMessage = errorData.error.message
           }
         } catch {
-          // Response wasn't JSON, use status-based message
           if (response.status === 404) {
             errorMessage = 'The AI model is currently unavailable. Please try again later or contact support.'
           } else if (response.status === 429) {
@@ -223,18 +222,28 @@ export const useEditorStore = defineStore('editor', () => {
         break
       case 'complete':
         break
-      case 'error':
-        // Show error message to the user in chat
+      case 'error': {
+        // Extract a clean error message
+        let errorMsg = data.message || 'Something went wrong. Please try again.'
+        // If the message is a raw JSON string, parse out a human-readable message
+        if (typeof errorMsg === 'string' && (errorMsg.startsWith('{') || errorMsg.startsWith('['))) {
+          try {
+            const parsed = JSON.parse(errorMsg)
+            errorMsg = parsed.error?.message || parsed.message || 'Something went wrong. Please try again.'
+          } catch {
+            errorMsg = 'Something went wrong. Please try again.'
+          }
+        }
         messages.value.push({
           id: Date.now().toString(),
           role: 'assistant',
-          content: `⚠️ ${data.message || 'Something went wrong. Please try again.'}`,
+          content: `⚠️ ${errorMsg}`,
           createdAt: new Date().toISOString(),
         })
-        // Stop generating since we hit an error
         isGenerating.value = false
         streamContent.value = ''
         break
+      }
     }
   }
 
