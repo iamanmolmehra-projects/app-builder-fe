@@ -113,11 +113,26 @@ export const useEditorStore = defineStore('editor', () => {
       if (!response.ok) {
         let errorMessage = 'Generation failed. Please try again.'
         try {
-          const errorData = await response.json()
-          if (errorData.message) {
-            errorMessage = errorData.message
-          } else if (errorData.error?.message) {
-            errorMessage = errorData.error.message
+          const responseText = await response.text()
+          // Try to parse as JSON
+          try {
+            const errorData = JSON.parse(responseText)
+            if (errorData.message) {
+              errorMessage = errorData.message
+            } else if (errorData.error?.message) {
+              errorMessage = errorData.error.message
+            }
+          } catch {
+            // Not JSON, check if it contains a JSON-like structure within the text
+            const jsonMatch = responseText.match(/\{.*\}/)
+            if (jsonMatch) {
+              try {
+                const parsed = JSON.parse(jsonMatch[0])
+                errorMessage = parsed.error?.message || parsed.message || errorMessage
+              } catch {
+                // ignore
+              }
+            }
           }
         } catch {
           if (response.status === 404) {
@@ -225,13 +240,17 @@ export const useEditorStore = defineStore('editor', () => {
       case 'error': {
         // Extract a clean error message
         let errorMsg = data.message || 'Something went wrong. Please try again.'
-        // If the message is a raw JSON string, parse out a human-readable message
-        if (typeof errorMsg === 'string' && (errorMsg.startsWith('{') || errorMsg.startsWith('['))) {
-          try {
-            const parsed = JSON.parse(errorMsg)
-            errorMsg = parsed.error?.message || parsed.message || 'Something went wrong. Please try again.'
-          } catch {
-            errorMsg = 'Something went wrong. Please try again.'
+        // If the message contains a JSON object (possibly prefixed with status code), extract readable message
+        if (typeof errorMsg === 'string') {
+          const jsonMatch = errorMsg.match(/\{.*\}/)
+          if (jsonMatch) {
+            try {
+              const parsed = JSON.parse(jsonMatch[0])
+              errorMsg = parsed.error?.message || parsed.message || 'Something went wrong. Please try again.'
+            } catch {
+              // Keep original message if parsing fails, but strip any status code prefix
+              errorMsg = errorMsg.replace(/^\d{3}\s*/, '').trim() || 'Something went wrong. Please try again.'
+            }
           }
         }
         messages.value.push({
